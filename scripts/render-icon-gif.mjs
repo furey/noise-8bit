@@ -12,21 +12,12 @@ const { values } = parseArgs({
   },
 })
 
-const ORIGIN = 181
-const PITCH = 84
-const CELL = 74
-const FRAMES = 24
-const GLOWS = [
-  { col: 3, row: 5, bright: '#f2b8cf', phase: 0 },
-  { col: 4, row: 6, bright: '#c9b8f5', phase: 0.04 },
-  { col: 4, row: 5, bright: '#b9c8f5', phase: 0.5 },
-  { col: 3, row: 6, bright: '#f0c9a0', phase: 0.54 },
-]
+const FRAMES = 36
+const GRADIENT = /x1="(-?[\d.]+)" y1="0" x2="(-?[\d.]+)" y2="0"/
 
 const main = async () => {
   const source = await fs.readFile(path.join(appRoot, 'build', 'icon-source', 'icon.svg'), 'utf8')
-  const icon = parseIcon(source)
-  const svgs = Array.from({ length: FRAMES }, (_, frame) => frameSvg({ icon, frame }))
+  const svgs = Array.from({ length: FRAMES }, (_, frame) => frameSvg({ source, frame }))
   const work = await fs.mkdtemp(path.join(os.tmpdir(), 'noise-icon-gif-'))
   await renderFrames({ svgs, size: Number(values.size), dir: work })
   await ensureDir(values.out)
@@ -36,33 +27,11 @@ const main = async () => {
   console.log(`app-icon.gif: ${svgs.length} frames at ${values.fps} fps; app-icon.png written`)
 }
 
-const parseIcon = source => {
-  const cells = [...source.matchAll(/<rect x="(\d+)" y="(\d+)" width="74" height="74" fill="(#[0-9a-f]{6})"(?: fill-opacity="([\d.]+)")?\/>/g)]
-    .map(([, x, y, fill, opacity]) => ({ col: (x - ORIGIN) / PITCH, row: (y - ORIGIN) / PITCH, fill, opacity: Number(opacity ?? 1) }))
-  const head = source.slice(0, source.indexOf('<rect x="181"'))
-  return { cells, head }
-}
-
-const frameSvg = ({ icon, frame }) => {
-  const cells = icon.cells.map(cell => {
-    const glow = GLOWS.find(each => each.col === cell.col && each.row === cell.row)
-    return glow ? { ...cell, fill: mixHex(cell.fill, glow.bright, glowAt(glow, frame)) } : cell
-  })
-  return `${icon.head}${cells.map(rect).join('')}</svg>`
-}
-
-const glowAt = ({ phase }, frame) => Math.max(0, Math.sin((frame / FRAMES + phase) * Math.PI * 2)) ** 1.5
-
-const rect = ({ col, row, fill, opacity }) => {
-  const alpha = opacity === 1 ? '' : ` fill-opacity="${opacity}"`
-  return `<rect x="${ORIGIN + col * PITCH}" y="${ORIGIN + row * PITCH}" width="${CELL}" height="${CELL}" fill="${fill}"${alpha}/>`
-}
-
-const mixHex = (from, to, amount) => {
-  const channels = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
-  const [a, b] = [channels(from), channels(to)]
-  return `#${a.map((value, i) => Math.round(value + (b[i] - value) * amount).toString(16).padStart(2, '0')).join('')}`
-}
+const frameSvg = ({ source, frame }) => source.replace(GRADIENT, (_, x1, x2) => {
+  const span = Number(x2) - Number(x1)
+  const shift = frame / FRAMES * span * 2
+  return `spreadMethod="reflect" x1="${Number(x1) + shift}" y1="0" x2="${Number(x2) + shift}" y2="0"`
+})
 
 const renderFrames = async ({ svgs, size, dir }) => {
   const browser = await launchBrowser()
